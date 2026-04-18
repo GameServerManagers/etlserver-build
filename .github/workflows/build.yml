@@ -1,0 +1,196 @@
+name: Build ET:Legacy i386 Server for LinuxGSM
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Every Monday at 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get ETL download URL and version
+        id: etl
+        run: |
+          echo "Fetching ETL download page..."
+          DOWNLOAD_HTML=$(curl -sSf "https://www.etlegacy.com/download")
+
+          # Extract the Linux i386 archive download URL.
+          ETL_URL=$(echo "$DOWNLOAD_HTML" | python3 - <<'EOF'
+          import sys, re
+          content = sys.stdin.read()
+          m = re.search(
+              r'data-href="(https://www\.etlegacy\.com/download/file/\d+)">i386 archive<',
+              content
+          )
+          if m:
+              print(m.group(1))
+          else:
+              sys.exit(1)
+          EOF
+          )
+
+          if [[ -z "$ETL_URL" ]]; then
+            echo "::error::Could not find Linux i386 archive link on the ETL download page"
+            exit 1
+          fi
+
+          # Resolve filename and version from the Content-Disposition header
+          FILENAME=$(curl -sSI "$ETL_URL" \
+            | grep -i 'content-disposition' \
+            | tr -d '\r' \
+            | grep -oP 'filename=\K\S+')
+
+          VERSION=$(echo "$FILENAME" | grep -oP '(?<=etlegacy-v)[0-9.]+')
+
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Failed to parse ETL version from filename: $FILENAME"
+            exit 1
+          fi
+
+          echo "url=$ETL_URL"          >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"      >> "$GITHUB_OUTPUT"
+          echo "filename=$FILENAME"    >> "$GITHUB_OUTPUT"
+          echo "ETL version : $VERSION"
+          echo "Download URL: $ETL_URL"
+
+      - name: Check for existing release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.etl.outputs.version }}"
+          if gh release view "v${VERSION}" --repo "${{ github.repository }}" &>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release v${VERSION} already exists — skipping build."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release v${VERSION} not found — proceeding with build."
+          fi
+
+      - name: Download ETL Linux i386 archive
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          echo "Downloading ET:Legacy v${{ steps.etl.outputs.version }} Linux i386 archive..."
+          curl -sSfL -o etlegacy-i386.tar.gz "${{ steps.etl.outputs.url }}"
+          ls -lh etlegacy-i386.tar.gz
+
+      - name: Download Enemy Territory 2.60b files
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          echo "Downloading Enemy Territory 2.60b files..."
+          curl -sSfL -o et260b.tar.xz \
+            "http://linuxgsm.download/WolfensteinEnemyTerritory/enemy-territory.260b.tar.xz"
+          ls -lh et260b.tar.xz
+
+      - name: Build combined server archive
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.etl.outputs.version }}"
+          OUTPUT="etlegacy-v${VERSION}-i386-et-260b.tar.xz"
+
+          # ── Extract ETL archive ───────────────────────────────────────────────
+          mkdir -p build/etl
+          tar xzf etlegacy-i386.tar.gz -C build/etl
+
+          # Locate the extracted ETL directory (e.g. etlegacy-v2.83.2-x86_64/)
+          ETL_DIR=$(find build/etl -maxdepth 1 -type d -name "etlegacy-*" | head -1)
+          if [[ -z "$ETL_DIR" ]]; then
+            echo "::error::Could not find ETL directory inside the archive"
+            ls -la build/etl/
+            exit 1
+          fi
+          echo "ETL directory: $ETL_DIR"
+
+          # ── Rename server binary for LinuxGSM compatibility ──────────────────
+          # LinuxGSM etlserver expects the binary to be named 'etlded'.
+          if [[ -f "${ETL_DIR}/etlded.i386" ]]; then
+            mv "${ETL_DIR}/etlded.i386" "${ETL_DIR}/etlded"
+            chmod +x "${ETL_DIR}/etlded"
+            echo "Renamed etlded.i386 → etlded"
+          elif [[ -f "${ETL_DIR}/etlded" ]]; then
+            chmod +x "${ETL_DIR}/etlded"
+            echo "etlded binary already named correctly"
+          else
+            echo "::error::etlded binary not found in the ETL archive"
+            ls -la "${ETL_DIR}/"
+            exit 1
+          fi
+
+          # ── Extract ET 2.60b files and copy pak files to etmain/ ─────────────
+          # ET:Legacy requires the original Enemy Territory pak files (pak0–pak2)
+          # to be present in etmain/ alongside the ETL mod files.
+          mkdir -p build/et260b
+          tar xJf et260b.tar.xz -C build/et260b
+
+          mkdir -p "${ETL_DIR}/etmain"
+
+          PAK_COUNT=0
+          while IFS= read -r -d '' pak; do
+            cp "$pak" "${ETL_DIR}/etmain/"
+            echo "Copied: $(basename "$pak")"
+            ((PAK_COUNT++))
+          done < <(find build/et260b -name "pak*.pk3" -print0)
+
+          if [[ $PAK_COUNT -eq 0 ]]; then
+            echo "::error::No pak*.pk3 files found in the ET 2.60b archive"
+            echo "ET 2.60b archive top-level contents:"
+            ls -la build/et260b/ | head -30
+            exit 1
+          fi
+          echo "Copied ${PAK_COUNT} pak file(s) to etmain/"
+
+          # ── Show the final directory structure ───────────────────────────────
+          echo "Server root:"
+          ls -la "${ETL_DIR}/"
+          echo "etmain/:"
+          ls -la "${ETL_DIR}/etmain/"
+
+          # ── Pack flat archive (no outer directory wrapper) ───────────────────
+          tar cJf "$OUTPUT" -C "${ETL_DIR}" .
+
+          MD5=$(md5sum "$OUTPUT" | cut -d' ' -f1)
+          echo "Created : $OUTPUT"
+          ls -lh "$OUTPUT"
+          echo "MD5     : $MD5"
+
+          # Pass to subsequent steps
+          echo "OUTPUT=$OUTPUT" >> "$GITHUB_ENV"
+          echo "MD5=$MD5"       >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.etl.outputs.version }}"
+
+          gh release create "v${VERSION}" \
+            --title "ET:Legacy v${VERSION} i386 Server for LinuxGSM" \
+            --notes "## ET:Legacy v${VERSION} Linux i386 Server for LinuxGSM
+
+Built from:
+- [ET:Legacy v${VERSION}](https://www.etlegacy.com/download) Linux i386 server archive
+- Enemy Territory 2.60b game files (pak0.pk3, pak1.pk3, pak2.pk3)
+
+For use with [LinuxGSM etlserver](https://linuxgsm.com/servers/etlserver/).
+
+### File details
+\`\`\`
+Filename : ${OUTPUT}
+MD5      : ${MD5}
+\`\`\`
+
+### LinuxGSM download URL
+\`\`\`
+https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${OUTPUT}
+\`\`\`" \
+            "$OUTPUT"
+
+          echo "Release v${VERSION} created with ${OUTPUT} (MD5: ${MD5})"
