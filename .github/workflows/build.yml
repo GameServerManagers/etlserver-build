@@ -171,26 +171,26 @@ jobs:
         run: |
           VERSION="${{ steps.etl.outputs.version }}"
 
-          cat > release-notes.md <<EOF
-## ET:Legacy v${VERSION} Linux i386 Server for LinuxGSM
-
-Built from:
-- [ET:Legacy v${VERSION}](https://www.etlegacy.com/download) Linux i386 server archive
-- Enemy Territory 2.60b game files (pak0.pk3, pak1.pk3, pak2.pk3)
-
-For use with [LinuxGSM etlserver](https://linuxgsm.com/servers/etlserver/).
-
-### File details
-\`\`\`
-Filename : ${OUTPUT}
-MD5      : ${MD5}
-\`\`\`
-
-### LinuxGSM download URL
-\`\`\`
-https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${OUTPUT}
-\`\`\`
-EOF
+          printf '%s\n' \
+            "## ET:Legacy v${VERSION} Linux i386 Server for LinuxGSM" \
+            "" \
+            "Built from:" \
+            "- [ET:Legacy v${VERSION}](https://www.etlegacy.com/download) Linux i386 server archive" \
+            "- Enemy Territory 2.60b game files (pak0.pk3, pak1.pk3, pak2.pk3)" \
+            "" \
+            "For use with [LinuxGSM etlserver](https://linuxgsm.com/servers/etlserver/)." \
+            "" \
+            "### File details" \
+            '```' \
+            "Filename : ${OUTPUT}" \
+            "MD5      : ${MD5}" \
+            '```' \
+            "" \
+            "### LinuxGSM download URL" \
+            '```' \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${OUTPUT}" \
+            '```' \
+            > release-notes.md
 
           gh release create "v${VERSION}" \
             --title "ET:Legacy v${VERSION} i386 Server for LinuxGSM" \
