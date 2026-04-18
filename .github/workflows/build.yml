@@ -124,7 +124,7 @@ jobs:
           while IFS= read -r -d '' pak; do
             cp "$pak" "${ETL_DIR}/etmain/"
             echo "Copied: $(basename "$pak")"
-            ((PAK_COUNT++))
+            PAK_COUNT=$((PAK_COUNT + 1))
           done < <(find build/et260b -name "pak*.pk3" -print0)
 
           if [[ $PAK_COUNT -eq 0 ]]; then
