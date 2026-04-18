@@ -171,9 +171,8 @@ jobs:
         run: |
           VERSION="${{ steps.etl.outputs.version }}"
 
-          gh release create "v${VERSION}" \
-            --title "ET:Legacy v${VERSION} i386 Server for LinuxGSM" \
-            --notes "## ET:Legacy v${VERSION} Linux i386 Server for LinuxGSM
+          cat > release-notes.md <<EOF
+## ET:Legacy v${VERSION} Linux i386 Server for LinuxGSM
 
 Built from:
 - [ET:Legacy v${VERSION}](https://www.etlegacy.com/download) Linux i386 server archive
@@ -189,8 +188,13 @@ MD5      : ${MD5}
 
 ### LinuxGSM download URL
 \`\`\`
-https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${OUTPUT}
-\`\`\`" \
+https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${OUTPUT}
+\`\`\`
+EOF
+
+          gh release create "v${VERSION}" \
+            --title "ET:Legacy v${VERSION} i386 Server for LinuxGSM" \
+            --notes-file release-notes.md \
             "$OUTPUT"
 
           echo "Release v${VERSION} created with ${OUTPUT} (MD5: ${MD5})"
