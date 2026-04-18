@@ -22,19 +22,8 @@ jobs:
           DOWNLOAD_HTML=$(curl -sSf "https://www.etlegacy.com/download")
 
           # Extract the Linux i386 archive download URL.
-          ETL_URL=$(echo "$DOWNLOAD_HTML" | python3 - <<'EOF'
-          import sys, re
-          content = sys.stdin.read()
-          m = re.search(
-              r'data-href="(https://www\.etlegacy\.com/download/file/\d+)">i386 archive<',
-              content
-          )
-          if m:
-              print(m.group(1))
-          else:
-              sys.exit(1)
-          EOF
-          )
+          ETL_URL=$(echo "$DOWNLOAD_HTML" \
+            | grep -oP 'data-href="\K[^"]+(?=">i386 archive)')
 
           if [[ -z "$ETL_URL" ]]; then
             echo "::error::Could not find Linux i386 archive link on the ETL download page"
