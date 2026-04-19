@@ -28,13 +28,3 @@ up to date with the latest ET:Legacy release.
 
 The workflow runs every **Monday at 02:00 UTC** and can also be triggered
 manually via `workflow_dispatch`.
-
-## Using the release with LinuxGSM
-
-Update the `etl` entry in LinuxGSM's `install_server_files.sh` to point at
-the release asset URL shown in the release notes, e.g.:
-
-```
-https://github.com/GameServerManagers/etlserver-build/releases/download/vX.Y.Z/etlegacy-vX.Y.Z-x86_64-et-260b.tar.xz
-```
-
