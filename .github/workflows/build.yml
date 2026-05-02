@@ -63,6 +63,57 @@ jobs:
             echo "Release v${VERSION} not found — proceeding with build."
           fi
 
+      - name: Update README upstream status
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.etl.outputs.version }}"
+          REFRESHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          {
+            printf '%s\n' '| Component | Version | Notes |'
+            printf '%s\n' '| --- | --- | --- |'
+            printf '| ET:Legacy | %s | [download](https://www.etlegacy.com/download) |\n' "$VERSION"
+            printf '| Enemy Territory 2.60b | 2.60b | bundled game files (pak0–pak2) |\n'
+            printf '\n'
+            printf 'Last refreshed (UTC): %s\n' "$REFRESHED_AT"
+          } > /tmp/readme-upstream-status.md
+
+          awk '
+            BEGIN { in_block=0 }
+            /<!-- BEGIN AUTO-UPDATED UPSTREAM STATUS -->/ {
+              print
+              while ((getline line < "/tmp/readme-upstream-status.md") > 0) print line
+              in_block=1
+              next
+            }
+            /<!-- END AUTO-UPDATED UPSTREAM STATUS -->/ {
+              in_block=0
+              print
+              next
+            }
+            !in_block { print }
+          ' README.md > README.md.new
+
+          mv README.md.new README.md
+
+      - name: Commit README updates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- README.md; then
+            echo "README unchanged; skipping commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: update upstream component versions in README"
+          git push origin "${GITHUB_REF_NAME}"
+
       - name: Download ETL Linux i386 archive
         if: steps.check.outputs.exists == 'false'
         run: |
@@ -83,6 +134,7 @@ jobs:
         run: |
           VERSION="${{ steps.etl.outputs.version }}"
           OUTPUT="etlegacy-v${VERSION}-i386-et-260b.tar.xz"
+          LATEST_OUTPUT="etlegacy-latest-i386-et-260b.tar.xz"
 
           # ── Extract ETL archive ───────────────────────────────────────────────
           mkdir -p build/etl
@@ -144,20 +196,45 @@ jobs:
           # ── Pack flat archive (no outer directory wrapper) ───────────────────
           tar cJf "$OUTPUT" -C "${ETL_DIR}" .
 
-          MD5=$(md5sum "$OUTPUT" | cut -d' ' -f1)
+          cp "$OUTPUT" "$LATEST_OUTPUT"
+
+          md5sum "$OUTPUT" "$LATEST_OUTPUT" > MD5SUMS
+          sha256sum "$OUTPUT" "$LATEST_OUTPUT" > SHA256SUMS
+
           echo "Created : $OUTPUT"
-          ls -lh "$OUTPUT"
-          echo "MD5     : $MD5"
+          echo "Created : $LATEST_OUTPUT"
+          ls -lh "$OUTPUT" "$LATEST_OUTPUT" MD5SUMS SHA256SUMS
 
           # Pass to subsequent steps
-          echo "OUTPUT=$OUTPUT" >> "$GITHUB_ENV"
-          echo "MD5=$MD5"       >> "$GITHUB_ENV"
+          echo "OUTPUT=$OUTPUT"               >> "$GITHUB_ENV"
+          echo "LATEST_OUTPUT=$LATEST_OUTPUT" >> "$GITHUB_ENV"
+
+      - name: Write job summary
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.etl.outputs.version }}"
+          {
+            echo "## ET:Legacy i386 Server Build"
+            echo ""
+            echo "| Component | Version |"
+            echo "| --- | --- |"
+            echo "| ET:Legacy | ${VERSION} |"
+            echo "| Enemy Territory 2.60b | 2.60b |"
+            echo ""
+            echo "### Artifacts"
+            echo "- \`${OUTPUT}\`"
+            echo "- \`${LATEST_OUTPUT}\`"
+            echo "- \`MD5SUMS\`"
+            echo "- \`SHA256SUMS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           VERSION="${{ steps.etl.outputs.version }}"
 
           printf '%s\n' \
@@ -169,11 +246,9 @@ jobs:
             "" \
             "For use with [LinuxGSM etlserver](https://linuxgsm.com/servers/etlserver/)." \
             "" \
-            "### File details" \
-            '```' \
-            "Filename : ${OUTPUT}" \
-            "MD5      : ${MD5}" \
-            '```' \
+            "### Files" \
+            "- \`${OUTPUT}\` — versioned archive" \
+            "- \`MD5SUMS\` / \`SHA256SUMS\` — checksums for all artifacts" \
             "" \
             "### LinuxGSM download URL" \
             '```' \
@@ -184,6 +259,53 @@ jobs:
           gh release create "v${VERSION}" \
             --title "ET:Legacy v${VERSION} i386 Server for LinuxGSM" \
             --notes-file release-notes.md \
-            "$OUTPUT"
+            "$OUTPUT" \
+            MD5SUMS \
+            SHA256SUMS
 
-          echo "Release v${VERSION} created with ${OUTPUT} (MD5: ${MD5})"
+          echo "Release v${VERSION} created with ${OUTPUT}"
+
+      - name: Publish moving latest release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.etl.outputs.version }}"
+          TAG="latest"
+
+          printf '%s\n' \
+            "## Latest ET:Legacy Linux i386 Server for LinuxGSM" \
+            "" \
+            "Refreshed from the scheduled build on $(date -u +%Y-%m-%d)." \
+            "" \
+            "ET:Legacy version: ${VERSION}" \
+            "" \
+            "For use with [LinuxGSM etlserver](https://linuxgsm.com/servers/etlserver/)." \
+            "" \
+            "### Stable file" \
+            "- \`${LATEST_OUTPUT}\`" \
+            "" \
+            "### Checksums" \
+            "- \`MD5SUMS\`" \
+            "- \`SHA256SUMS\`" \
+            > release-notes-latest.md
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "ET:Legacy latest i386 Server for LinuxGSM" \
+              --notes-file release-notes-latest.md
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "ET:Legacy latest i386 Server for LinuxGSM" \
+              --notes-file release-notes-latest.md
+          fi
+
+          gh release upload "$TAG" \
+            --repo "${{ github.repository }}" \
+            --clobber \
+            "$LATEST_OUTPUT" \
+            MD5SUMS \
+            SHA256SUMS
