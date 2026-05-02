@@ -12,10 +12,10 @@ This section is automatically updated by the build workflow on each run.
 <!-- BEGIN AUTO-UPDATED UPSTREAM STATUS -->
 | Component | Version | Notes |
 | --- | --- | --- |
-| ET:Legacy | — | [download](https://www.etlegacy.com/download) |
+| ET:Legacy | 2.83.2 | [download](https://www.etlegacy.com/download) |
 | Enemy Territory 2.60b | 2.60b | bundled game files (pak0–pak2) |
 
-Last refreshed (UTC): —
+Last refreshed (UTC): 2026-05-02T22:39:13Z
 <!-- END AUTO-UPDATED UPSTREAM STATUS -->
 
 ## Why this exists
