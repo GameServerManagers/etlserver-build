@@ -15,7 +15,7 @@ This section is automatically updated by the build workflow on each run.
 | ET:Legacy | 2.84.0 | [download](https://www.etlegacy.com/download) |
 | Enemy Territory 2.60b | 2.60b | bundled game files (pak0–pak2) |
 
-Last refreshed (UTC): 2026-07-06T06:19:09Z
+Last refreshed (UTC): 2026-07-13T05:26:57Z
 <!-- END AUTO-UPDATED UPSTREAM STATUS -->
 
 ## Why this exists
